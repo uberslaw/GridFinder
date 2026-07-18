@@ -124,7 +124,8 @@
   function drawGrid(width, height) {
     const { spacing, thickness, majorEvery, gridColor, majorColor } = state;
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "rgba(20, 16, 12, 0.04)";
+    // Keep enough alpha for Windows transparent-window hit testing
+    ctx.fillStyle = "rgba(20, 16, 12, 0.06)";
     ctx.fillRect(0, 0, width, height);
 
     const minorWidth = thickness;
@@ -326,34 +327,37 @@
     });
   }
 
-  // Ctrl + left-drag anywhere on the overlay to move it
+  // Ctrl/Alt + left-drag (or middle-mouse drag) anywhere on the overlay to move it.
+  // Drag is driven from the main process using the screen cursor so it stays smooth on Windows.
   (() => {
-    let drag = null;
+    let dragging = false;
 
-    const onDown = async (event) => {
-      if (!(event.ctrlKey || event.metaKey) || event.button !== 0) return;
+    const beginDrag = async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const bounds = await api.getBounds();
-      if (!bounds) return;
-      drag = {
-        startX: event.screenX,
-        startY: event.screenY,
-        origin: { ...bounds },
-      };
+      dragging = true;
       document.body.classList.add("ctrl-drag");
+      try {
+        canvas.setPointerCapture?.(event.pointerId);
+      } catch (_) {
+        /* ignore */
+      }
+      await api.dragStart?.();
     };
 
-    const onMove = async (event) => {
-      if (!drag) return;
-      const dx = event.screenX - drag.startX;
-      const dy = event.screenY - drag.startY;
-      const result = await api.setBounds({
-        x: drag.origin.x + dx,
-        y: drag.origin.y + dy,
-        width: drag.origin.width,
-        height: drag.origin.height,
-      });
+    const shouldDrag = (event) =>
+      event.button === 0 && (event.ctrlKey || event.metaKey || event.altKey);
+
+    const onPointerDown = (event) => {
+      if (state.clickThrough) return;
+      if (event.button === 1 || shouldDrag(event)) {
+        beginDrag(event);
+      }
+    };
+
+    const onPointerMove = async (event) => {
+      if (!dragging) return;
+      const result = await api.dragToCursor?.();
       if (result?.sticky) {
         state.stickyActive = result.sticky;
         publishStatus();
@@ -361,15 +365,23 @@
       }
     };
 
-    const onUp = () => {
-      drag = null;
+    const endDrag = async (event) => {
+      if (!dragging) return;
+      dragging = false;
       document.body.classList.remove("ctrl-drag");
+      try {
+        if (event?.pointerId != null) canvas.releasePointerCapture?.(event.pointerId);
+      } catch (_) {
+        /* ignore */
+      }
+      await api.dragEnd?.();
     };
 
-    window.addEventListener("mousedown", onDown, true);
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    window.addEventListener("blur", onUp);
+    canvas.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", endDrag);
+    window.addEventListener("pointercancel", endDrag);
+    window.addEventListener("blur", () => endDrag());
   })();
 
   // Resize handles

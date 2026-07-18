@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld("gridFinder", {
   getBounds: () => ipcRenderer.invoke("window:get-bounds"),
   setBounds: (bounds) => ipcRenderer.invoke("window:set-bounds", bounds),
   moveBy: (delta) => ipcRenderer.invoke("window:move-by", delta),
+  dragStart: () => ipcRenderer.invoke("window:drag-start"),
+  dragToCursor: () => ipcRenderer.invoke("window:drag-to-cursor"),
+  dragEnd: () => ipcRenderer.invoke("window:drag-end"),
   setIgnoreMouseEvents: (ignore, options) =>
     ipcRenderer.invoke("window:set-ignore-mouse-events", ignore, options),
   resetPanel: () => ipcRenderer.invoke("panel:reset"),

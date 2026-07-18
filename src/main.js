@@ -402,6 +402,49 @@ ipcMain.handle("window:move-by", (event, delta) => {
   };
 });
 
+/** @type {{ win: BrowserWindow, offsetX: number, offsetY: number } | null} */
+let liveDrag = null;
+
+ipcMain.handle("window:drag-start", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return false;
+  const cursor = screen.getCursorScreenPoint();
+  const bounds = win.getBounds();
+  liveDrag = {
+    win,
+    offsetX: cursor.x - bounds.x,
+    offsetY: cursor.y - bounds.y,
+  };
+  return true;
+});
+
+ipcMain.handle("window:drag-to-cursor", () => {
+  if (!liveDrag?.win || liveDrag.win.isDestroyed()) {
+    liveDrag = null;
+    return null;
+  }
+  const cursor = screen.getCursorScreenPoint();
+  const current = liveDrag.win.getBounds();
+  let next = {
+    ...current,
+    x: cursor.x - liveDrag.offsetX,
+    y: cursor.y - liveDrag.offsetY,
+  };
+  if (liveDrag.win === overlayWindow) {
+    next = constrainMove(next);
+  }
+  liveDrag.win.setBounds(next, false);
+  return {
+    bounds: liveDrag.win.getBounds(),
+    sticky: stickyGuide ? { ...stickyGuide } : null,
+  };
+});
+
+ipcMain.handle("window:drag-end", () => {
+  liveDrag = null;
+  return true;
+});
+
 ipcMain.handle("window:set-ignore-mouse-events", (event, ignore, options) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return;
