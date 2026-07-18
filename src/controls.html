@@ -218,7 +218,9 @@
           <button type="button" class="btn ghost" id="btnIncrementWindow">
             Grow increment settings…
           </button>
-          <p class="field-hint">Used by Ctrl+Arrow after docking with Ctrl+Shift+Arrow.</p>
+          <p class="field-hint" id="layoutGrowHint">
+            Used by Ctrl+Arrow after docking with Ctrl+Shift+Arrow (⌘ on Mac).
+          </p>
         </div>
       </details>
 
@@ -231,7 +233,7 @@
           </label>
           <label class="toggle">
             <input type="checkbox" id="clickThrough" />
-            <span>Click-through grid (Ctrl+Shift+G)</span>
+            <span id="clickThroughLabel">Click-through grid (auto when covering panel / fullscreen)</span>
           </label>
           <label class="toggle">
             <input type="checkbox" id="overlayMinimized" />
@@ -256,18 +258,7 @@
       <details class="panel-section">
         <summary>Shortcuts</summary>
         <div class="section-body">
-          <div class="shortcut-list">
-            <div><kbd>Ctrl</kbd>+drag grid</div><div>Move overlay</div>
-            <div><kbd>Z</kbd> (hold)</div><div>Hide grid while held</div>
-            <div><kbd>+</kbd> / <kbd>−</kbd></div><div>Zoom resolution in / out</div>
-            <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd></div><div>Toggle click-through</div>
-            <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd></div><div>Reset controls panel</div>
-            <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd></div><div>Grow increment window</div>
-            <div><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+arrows</div><div>Dock to that edge (full stretch)</div>
-            <div><kbd>Ctrl</kbd>+opposite arrow</div><div>Grow from dock by increment</div>
-            <div><kbd>Ctrl</kbd>+same arrow</div><div>Shrink from dock by increment</div>
-            <div><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>6</kbd></div><div>Portion presets</div>
-          </div>
+          <div class="shortcut-list" id="shortcutList"></div>
         </div>
       </details>
     </div>

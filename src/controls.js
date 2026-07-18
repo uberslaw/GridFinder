@@ -340,9 +340,57 @@
     }
   });
 
+  function kbd(text) {
+    return `<kbd>${text}</kbd>`;
+  }
+
+  function applyPlatformLabels(platform) {
+    const mod = platform?.isMac ? "⌘" : "Ctrl";
+    const modName = platform?.isMac ? "Command" : "Ctrl";
+    const rows = [
+      [`${kbd(mod)}+drag grid`, "Move overlay"],
+      [`${kbd("Z")} (hold)`, "Hide grid while held"],
+      [`${kbd("+")} / ${kbd("−")}`, "Zoom resolution in / out"],
+      [`${kbd(mod)}+${kbd("Shift")}+${kbd("G")}`, "Toggle click-through"],
+      [`${kbd(mod)}+${kbd("Shift")}+${kbd("P")}`, "Reset controls panel"],
+      [`${kbd(mod)}+${kbd("Shift")}+${kbd("I")}`, "Grow increment window"],
+      [
+        `${kbd(mod)}+${kbd("Shift")}+arrows`,
+        "Dock to that edge (full stretch)",
+      ],
+      [
+        `${kbd(mod)}+arrows`,
+        "Grow / shrink from dock by increment",
+      ],
+      [
+        `${kbd(mod)}+${kbd(platform?.isMac ? "Option" : "Alt")}+${kbd("1")}…${kbd("6")}`,
+        "Portion presets",
+      ],
+    ];
+
+    const list = document.getElementById("shortcutList");
+    if (list) {
+      list.innerHTML = rows
+        .map(([keys, desc]) => `<div>${keys}</div><div>${desc}</div>`)
+        .join("");
+    }
+
+    const hint = document.getElementById("layoutGrowHint");
+    if (hint) {
+      hint.textContent = `Used by ${modName}+Arrow after docking with ${modName}+Shift+Arrow.`;
+    }
+
+    const ct = document.getElementById("clickThroughLabel");
+    if (ct) {
+      ct.textContent = `Click-through grid (${modName}+Shift+G · auto when covering panel / fullscreen)`;
+    }
+  }
+
   (async () => {
     const settings = await api.getSettings();
     syncLabels(settings);
+    const platform = await api.getPlatform?.();
+    if (platform) applyPlatformLabels(platform);
     const dpi = await api.getDpi();
     if (dpi) {
       dpiNote.textContent = `DPI: ${dpi.logicalPpi} logical PPI · scale ${dpi.scaleFactor.toFixed(
@@ -351,3 +399,4 @@
     }
   })();
 })();
+

@@ -51,6 +51,9 @@ let sharedSettings = {
   overlayMinimized: false, // checkbox: keep grid hidden while ticked
 };
 
+/** True when click-through was enabled because grid covers panel / fullscreen. */
+let clickThroughAuto = false;
+
 /** Momentary / pinned hide reasons for the overlay window. */
 const overlayHide = {
   pinned: false,
@@ -189,6 +192,7 @@ function createOverlayWindow() {
     overlayHide.pinned = true;
     syncOverlayVisibility();
   }
+  watchBoundsForAutoClickThrough(overlayWindow);
 
   overlayWindow.on("will-move", (event, newBounds) => {
     if (!stickyGuide || !overlayWindow) return;
@@ -258,6 +262,8 @@ function createControlWindow() {
   controlWindow.loadFile(path.join(__dirname, "controls.html"));
   placeControlBesideOverlay();
   wirePeekKeys(controlWindow);
+  watchBoundsForAutoClickThrough(controlWindow);
+  setTimeout(() => evaluateAutoClickThrough(), 50);
 
   controlWindow.on("closed", () => {
     controlWindow = null;
@@ -439,12 +445,9 @@ ipcMain.handle("settings:update", (_event, patch) => {
   if ("alwaysOnTop" in patch) {
     applyAlwaysOnTop(sharedSettings.alwaysOnTop);
   }
-  if ("clickThrough" in patch && overlayWindow) {
-    if (sharedSettings.clickThrough) {
-      overlayWindow.setIgnoreMouseEvents(true, { forward: true });
-    } else {
-      overlayWindow.setIgnoreMouseEvents(false);
-    }
+  if ("clickThrough" in patch) {
+    // Manual checkbox / settings change clears auto mode.
+    applyClickThrough(!!sharedSettings.clickThrough);
   }
   if ("overlayMinimized" in patch) {
     setOverlayHideReason("pinned", !!sharedSettings.overlayMinimized);
@@ -459,8 +462,13 @@ function clampLineCount(value) {
   return Math.max(1, Math.min(80, n));
 }
 
-function applyClickThrough(enabled) {
+function applyClickThrough(enabled, { fromAuto = false } = {}) {
   sharedSettings.clickThrough = Boolean(enabled);
+  if (!fromAuto) {
+    clickThroughAuto = false;
+  } else {
+    clickThroughAuto = Boolean(enabled);
+  }
   if (overlayWindow) {
     if (sharedSettings.clickThrough) {
       overlayWindow.setIgnoreMouseEvents(true, { forward: true });
@@ -469,6 +477,58 @@ function applyClickThrough(enabled) {
     }
   }
   broadcastSettings();
+}
+
+function rectsOverlap(a, b) {
+  return !(
+    a.x + a.width <= b.x ||
+    b.x + b.width <= a.x ||
+    a.y + a.height <= b.y ||
+    b.y + b.height <= a.y
+  );
+}
+
+function isNearlyFullscreen(bounds, area) {
+  const coverW = bounds.width >= area.width * 0.92;
+  const coverH = bounds.height >= area.height * 0.92;
+  return coverW && coverH;
+}
+
+function evaluateAutoClickThrough() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return;
+  if (!overlayWindow.isVisible()) return;
+
+  const bounds = overlayWindow.getBounds();
+  const area = getWorkAreaForOverlay(overlayWindow, screen);
+  let shouldAuto = isNearlyFullscreen(bounds, area);
+
+  if (
+    !shouldAuto &&
+    controlWindow &&
+    !controlWindow.isDestroyed() &&
+    controlWindow.isVisible()
+  ) {
+    shouldAuto = rectsOverlap(bounds, controlWindow.getBounds());
+  }
+
+  if (shouldAuto) {
+    if (!sharedSettings.clickThrough) {
+      applyClickThrough(true, { fromAuto: true });
+    }
+  } else if (clickThroughAuto) {
+    applyClickThrough(false, { fromAuto: true });
+  }
+}
+
+function watchBoundsForAutoClickThrough(win) {
+  if (!win) return;
+  const kick = () => {
+    // Defer so bounds are settled after move/resize.
+    setTimeout(() => evaluateAutoClickThrough(), 0);
+  };
+  win.on("moved", kick);
+  win.on("resized", kick);
+  win.on("show", kick);
 }
 
 function isOverlaySuppressed() {
@@ -553,6 +613,7 @@ function applyOverlayPortion(fullAxis, fraction, snap) {
   // For centered portions, clear dock so grow shortcuts need a fresh Ctrl+Shift dock.
   if (snap === "center" || fraction >= 0.999) dockState = null;
   overlayWindow.setBounds(bounds, false);
+  evaluateAutoClickThrough();
   return { bounds: overlayWindow.getBounds(), dock: dockState };
 }
 
@@ -570,6 +631,7 @@ function dockOverlay(edge) {
   stickyGuide = null;
   dockState = result.dock;
   overlayWindow.setBounds(result.bounds, false);
+  evaluateAutoClickThrough();
   return { bounds: overlayWindow.getBounds(), dock: dockState };
 }
 
@@ -592,6 +654,7 @@ function growOverlay(direction) {
   if (!next) return null;
   stickyGuide = null;
   overlayWindow.setBounds(next, false);
+  evaluateAutoClickThrough();
   return { bounds: overlayWindow.getBounds(), dock: dockState };
 }
 
@@ -642,6 +705,9 @@ ipcMain.handle("window:set-bounds", (event, bounds) => {
   }
 
   win.setBounds(next, false);
+  if (isOverlay || win === controlWindow) {
+    evaluateAutoClickThrough();
+  }
   return {
     bounds: win.getBounds(),
     sticky: stickyGuide ? { ...stickyGuide } : null,
@@ -866,6 +932,10 @@ function registerShortcuts() {
     }
   };
 
+  // On macOS, Ctrl+Arrow is Spaces/Mission Control — use Command instead.
+  const isMac = process.platform === "darwin";
+  const arrowMod = isMac ? "Command" : "Control";
+
   // Click-through toggle
   bind("CommandOrControl+Shift+G", () => {
     applyClickThrough(!sharedSettings.clickThrough);
@@ -891,17 +961,17 @@ function registerShortcuts() {
   bind("numsub", zoomOut);
   bind("-", zoomOut);
 
-  // Ctrl+Shift+Arrow → dock + full stretch on perpendicular axis
-  bind("CommandOrControl+Shift+Left", () => dockOverlay("left"));
-  bind("CommandOrControl+Shift+Right", () => dockOverlay("right"));
-  bind("CommandOrControl+Shift+Up", () => dockOverlay("top"));
-  bind("CommandOrControl+Shift+Down", () => dockOverlay("bottom"));
+  // Dock + full stretch on perpendicular axis
+  bind(`${arrowMod}+Shift+Left`, () => dockOverlay("left"));
+  bind(`${arrowMod}+Shift+Right`, () => dockOverlay("right"));
+  bind(`${arrowMod}+Shift+Up`, () => dockOverlay("top"));
+  bind(`${arrowMod}+Shift+Down`, () => dockOverlay("bottom"));
 
-  // Ctrl+Arrow → grow/shrink from docked edge
-  bind("CommandOrControl+Left", () => growOverlay("left"));
-  bind("CommandOrControl+Right", () => growOverlay("right"));
-  bind("CommandOrControl+Up", () => growOverlay("up"));
-  bind("CommandOrControl+Down", () => growOverlay("down"));
+  // Grow/shrink from docked edge
+  bind(`${arrowMod}+Left`, () => growOverlay("left"));
+  bind(`${arrowMod}+Right`, () => growOverlay("right"));
+  bind(`${arrowMod}+Up`, () => growOverlay("up"));
+  bind(`${arrowMod}+Down`, () => growOverlay("down"));
 
   // Portion presets
   bind("CommandOrControl+Alt+1", () =>
@@ -919,6 +989,13 @@ function registerShortcuts() {
   );
   bind("CommandOrControl+Alt+6", () => applyOverlayPortion("h", 1, "start"));
 }
+
+ipcMain.handle("app:get-platform", () => ({
+  platform: process.platform,
+  isMac: process.platform === "darwin",
+  arrowMod: process.platform === "darwin" ? "⌘" : "Ctrl",
+  arrowModName: process.platform === "darwin" ? "Command" : "Ctrl",
+}));
 
 app.whenReady().then(() => {
   createOverlayWindow();

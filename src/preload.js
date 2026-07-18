@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("gridFinder", {
   getRole: () => ipcRenderer.invoke("app:get-role"),
+  getPlatform: () => ipcRenderer.invoke("app:get-platform"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   updateSettings: (patch) => ipcRenderer.invoke("settings:update", patch),
   onSettings: (handler) => {
