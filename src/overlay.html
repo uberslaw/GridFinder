@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GridFinder Overlay</title>
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body>
+    <div class="overlay-stage" id="overlayStage">
+      <div class="window-frame" id="windowFrame">
+        <div class="hint-strip" id="hintStrip">
+          <span class="brand-mark">GridFinder</span>
+          <span class="drag-hint">Ctrl + drag to move · resize edges</span>
+        </div>
+
+        <canvas id="gridCanvas" aria-label="Alignment grid"></canvas>
+
+        <div id="measureHud" class="measure-hud hidden" aria-live="polite"></div>
+        <div id="stickyHud" class="sticky-hud hidden" aria-live="polite"></div>
+
+        <div class="resize-handles" aria-hidden="true">
+          <div class="handle n" data-edge="n"></div>
+          <div class="handle s" data-edge="s"></div>
+          <div class="handle e" data-edge="e"></div>
+          <div class="handle w" data-edge="w"></div>
+          <div class="handle ne" data-edge="ne"></div>
+          <div class="handle nw" data-edge="nw"></div>
+          <div class="handle se" data-edge="se"></div>
+          <div class="handle sw" data-edge="sw"></div>
+        </div>
+      </div>
+    </div>
+    <script src="overlay.js"></script>
+  </body>
+</html>

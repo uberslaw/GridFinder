@@ -20,5 +20,18 @@ To run it:
 ```powershell
 cd C:\Users\today\cursor\GridFinder
 npm install
+npm approve-scripts electron
+npm install
+npm start
+```
+
+## Update to latest handoff
+
+If you already cloned GridFinder from the handoff branch:
+
+```powershell
+cd C:\Users\today\cursor\GridFinder
+git pull origin cursor/gridfinder-handoff-4242
+npm install
 npm start
 ```
