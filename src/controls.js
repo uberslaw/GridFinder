@@ -21,6 +21,8 @@
   const toggleAccent = document.getElementById("toggleAccent");
   const alwaysOnTop = document.getElementById("alwaysOnTop");
   const clickThrough = document.getElementById("clickThrough");
+  const btnFineTune = document.getElementById("btnFineTune");
+  const fineTuneSteps = document.getElementById("fineTuneSteps");
 
   const lineCountValue = document.getElementById("lineCountValue");
   const thicknessValue = document.getElementById("thicknessValue");
@@ -28,13 +30,11 @@
   const majorEveryValue = document.getElementById("majorEveryValue");
   const ppiValue = document.getElementById("ppiValue");
 
-  function breakLabel(step) {
-    const n = Math.max(0, Math.min(8, Number(step) || 0));
-    if (n <= 0) return "Solid";
-    const unit = 2 ** (8 - n);
-    if (unit === 1) return "1px dots";
-    return `${unit}px dash / ${unit}px gap`;
-  }
+  let settingsCache = {
+    lineCount: 1,
+    fineTune: false,
+    fineTuneStep: 0.01,
+  };
 
   const MODE_HELP = {
     pan: "Ctrl + drag the grid to move it. Resize from the frame edges.",
@@ -46,11 +46,25 @@
 
   function lineLabel(count) {
     const n = Number(count) || 1;
-    return n === 1 ? "1 line" : `${n} lines`;
+    if (Math.abs(n - Math.round(n)) < 1e-9) {
+      return Math.round(n) === 1 ? "1 line" : `${Math.round(n)} lines`;
+    }
+    const decimals = settingsCache.fineTuneStep === 0.001 ? 3 : 2;
+    return `${n.toFixed(decimals)} lines`;
+  }
+
+  function breakLabel(step) {
+    const n = Math.max(0, Math.min(8, Number(step) || 0));
+    if (n <= 0) return "Solid";
+    const unit = 2 ** (8 - n);
+    if (unit === 1) return "1px dots";
+    return `${unit}px dash / ${unit}px gap`;
   }
 
   function syncLabels(settings) {
-    lineCountSlider.value = String(settings.lineCount ?? 1);
+    settingsCache = { ...settingsCache, ...settings };
+    const count = Number(settings.lineCount) || 1;
+    lineCountSlider.value = String(Math.min(80, Math.max(1, Math.round(count))));
     thicknessSlider.value = String(settings.thickness);
     lineBreakSlider.value = String(settings.lineBreak ?? 0);
     majorEverySlider.value = String(settings.majorEvery);
@@ -77,6 +91,16 @@
     toggleAccent.setAttribute("aria-pressed", accentOn ? "true" : "false");
     majorEveryField.classList.toggle("is-disabled", !majorOn);
 
+    const fineOn = !!settings.fineTune;
+    btnFineTune.classList.toggle("is-active", fineOn);
+    fineTuneSteps.classList.toggle("is-enabled", fineOn);
+    document.querySelectorAll("[data-fine-step]").forEach((btn) => {
+      btn.classList.toggle(
+        "active",
+        Number(btn.dataset.fineStep) === Number(settings.fineTuneStep)
+      );
+    });
+
     document.querySelectorAll(".mode-btn[data-mode]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.mode === settings.mode);
     });
@@ -93,14 +117,57 @@
     return api.updateSettings(partial);
   }
 
+  async function nudgeResolution(direction) {
+    const current = Number(settingsCache.lineCount) || 1;
+    let next;
+    if (settingsCache.fineTune) {
+      const stepFactor = settingsCache.fineTuneStep === 0.001 ? 0.001 : 0.01;
+      const nextInteger = Math.floor(current) + 1;
+      const distance = Math.max(1e-6, nextInteger - current);
+      next = current + direction * stepFactor * distance;
+    } else {
+      next = current + direction;
+    }
+    next = Math.max(1, Math.min(80, next));
+    await patch({ lineCount: next });
+  }
+
   document.querySelectorAll(".mode-btn[data-mode]").forEach((btn) => {
     btn.addEventListener("click", () => patch({ mode: btn.dataset.mode }));
   });
 
   lineCountSlider.addEventListener("input", () => {
-    lineCountValue.textContent = lineLabel(lineCountSlider.value);
-    patch({ lineCount: Number(lineCountSlider.value) });
+    const value = Number(lineCountSlider.value);
+    lineCountValue.textContent = lineLabel(value);
+    patch({ lineCount: value });
   });
+
+  document.getElementById("btnZoomIn").addEventListener("click", () => nudgeResolution(1));
+  document.getElementById("btnZoomOut").addEventListener("click", () => nudgeResolution(-1));
+
+  btnFineTune.addEventListener("click", () => {
+    patch({ fineTune: !settingsCache.fineTune });
+  });
+
+  document.querySelectorAll("[data-fine-step]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      patch({
+        fineTune: true,
+        fineTuneStep: Number(btn.dataset.fineStep),
+      });
+    });
+  });
+
+  window.addEventListener(
+    "wheel",
+    (event) => {
+      if (!settingsCache.fineTune) return;
+      event.preventDefault();
+      const direction = event.deltaY < 0 ? 1 : -1;
+      nudgeResolution(direction);
+    },
+    { passive: false }
+  );
 
   thicknessSlider.addEventListener("input", () => {
     thicknessValue.textContent = `${Number(thicknessSlider.value).toFixed(1)} px`;
@@ -176,6 +243,21 @@
   document
     .getElementById("btnClearSticky")
     .addEventListener("click", () => api.sendOverlayCommand("clearSticky"));
+
+  document.querySelectorAll("[data-portion]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const [fullAxis, fraction, snap] = btn.dataset.portion.split(":");
+      api.applyPortion({
+        fullAxis,
+        fraction: Number(fraction),
+        snap,
+      });
+    });
+  });
+
+  document
+    .getElementById("btnIncrementWindow")
+    .addEventListener("click", () => api.toggleIncrementWindow());
 
   const reset = () => api.resetPanel();
   document.getElementById("btnResetPanel").addEventListener("click", reset);

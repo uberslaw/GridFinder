@@ -1,15 +1,33 @@
 const { app, BrowserWindow, ipcMain, screen, globalShortcut } = require("electron");
 const path = require("path");
+const {
+  getWorkAreaForOverlay,
+  incrementToPixels,
+  dockToEdge,
+  growFromDock,
+  applyPortion,
+} = require("./layout");
 
 /** @type {BrowserWindow | null} */
 let overlayWindow = null;
 /** @type {BrowserWindow | null} */
 let controlWindow = null;
+/** @type {BrowserWindow | null} */
+let incrementWindow = null;
 
 /**
  * @type {{ axis: 'x' | 'y', screenPos: number, localOffset: number } | null}
  */
 let stickyGuide = null;
+
+/** @type {{ edge: 'left'|'right'|'top'|'bottom' } | null} */
+let dockState = null;
+
+/** Grow/shrink step for Ctrl+Arrow after a dock. */
+let growIncrement = {
+  mode: "fraction",
+  value: 1 / 12,
+};
 
 /** @type {Record<string, unknown>} */
 let sharedSettings = {
@@ -18,6 +36,8 @@ let sharedSettings = {
   thickness: 1,
   majorEvery: 5,
   lineBreak: 0, // 0 = solid … higher = shorter dashes down to 1px/1px
+  fineTune: false,
+  fineTuneStep: 0.01, // 0.01 or 0.001 of the unit toward the next line number
   gridColor: "#d9773a",
   majorColor: "#f0c49a",
   accentColor: "#ffe6c8",
@@ -387,6 +407,7 @@ function applyAlwaysOnTop(flag) {
 ipcMain.handle("app:get-role", (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win === controlWindow) return "controls";
+  if (win === incrementWindow) return "increments";
   return "overlay";
 });
 
@@ -394,17 +415,121 @@ ipcMain.handle("settings:get", () => ({ ...sharedSettings }));
 
 ipcMain.handle("settings:update", (_event, patch) => {
   sharedSettings = { ...sharedSettings, ...patch };
+  if ("lineCount" in patch) {
+    sharedSettings.lineCount = clampLineCount(sharedSettings.lineCount);
+  }
+  if ("fineTuneStep" in patch) {
+    const step = Number(sharedSettings.fineTuneStep);
+    sharedSettings.fineTuneStep = step <= 0.001 ? 0.001 : 0.01;
+  }
   if ("alwaysOnTop" in patch) {
     applyAlwaysOnTop(sharedSettings.alwaysOnTop);
   }
   if ("clickThrough" in patch && overlayWindow) {
-    if (!sharedSettings.clickThrough) {
+    if (sharedSettings.clickThrough) {
+      overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+    } else {
       overlayWindow.setIgnoreMouseEvents(false);
     }
   }
   broadcastSettings();
   return { ...sharedSettings };
 });
+
+function clampLineCount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(80, n));
+}
+
+function applyClickThrough(enabled) {
+  sharedSettings.clickThrough = Boolean(enabled);
+  if (overlayWindow) {
+    if (sharedSettings.clickThrough) {
+      overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+    } else {
+      overlayWindow.setIgnoreMouseEvents(false);
+    }
+  }
+  broadcastSettings();
+}
+
+function nudgeLineCount(direction) {
+  const current = clampLineCount(sharedSettings.lineCount);
+  let next;
+  if (sharedSettings.fineTune) {
+    const stepFactor = sharedSettings.fineTuneStep === 0.001 ? 0.001 : 0.01;
+    const nextInteger = Math.floor(current) + 1;
+    const distance = Math.max(1e-6, nextInteger - current);
+    const step = stepFactor * distance;
+    next = current + direction * step;
+  } else {
+    next = current + direction;
+  }
+  sharedSettings.lineCount = clampLineCount(next);
+  broadcastSettings();
+}
+
+function applyOverlayPortion(fullAxis, fraction, snap) {
+  if (!overlayWindow) return null;
+  const area = getWorkAreaForOverlay(overlayWindow, screen);
+  const bounds = applyPortion(
+    fullAxis,
+    fraction,
+    snap,
+    area,
+    OVERLAY_MIN_WIDTH,
+    OVERLAY_MIN_HEIGHT
+  );
+  stickyGuide = null;
+  dockState =
+    fullAxis === "v"
+      ? { edge: snap === "end" ? "right" : snap === "start" ? "left" : "left" }
+      : { edge: snap === "end" ? "bottom" : snap === "start" ? "top" : "top" };
+  // For centered portions, clear dock so grow shortcuts need a fresh Ctrl+Shift dock.
+  if (snap === "center" || fraction >= 0.999) dockState = null;
+  overlayWindow.setBounds(bounds, false);
+  return { bounds: overlayWindow.getBounds(), dock: dockState };
+}
+
+function dockOverlay(edge) {
+  if (!overlayWindow) return null;
+  const area = getWorkAreaForOverlay(overlayWindow, screen);
+  const current = overlayWindow.getBounds();
+  const result = dockToEdge(
+    edge,
+    current,
+    area,
+    OVERLAY_MIN_WIDTH,
+    OVERLAY_MIN_HEIGHT
+  );
+  stickyGuide = null;
+  dockState = result.dock;
+  overlayWindow.setBounds(result.bounds, false);
+  return { bounds: overlayWindow.getBounds(), dock: dockState };
+}
+
+function growOverlay(direction) {
+  if (!overlayWindow || !dockState) return null;
+  const area = getWorkAreaForOverlay(overlayWindow, screen);
+  const dpi = getDpiInfo();
+  const axis =
+    dockState.edge === "left" || dockState.edge === "right" ? "x" : "y";
+  const stepPx = incrementToPixels(growIncrement, axis, area, dpi);
+  const next = growFromDock(
+    dockState,
+    direction,
+    overlayWindow.getBounds(),
+    area,
+    stepPx,
+    OVERLAY_MIN_WIDTH,
+    OVERLAY_MIN_HEIGHT
+  );
+  if (!next) return null;
+  stickyGuide = null;
+  overlayWindow.setBounds(next, false);
+  return { bounds: overlayWindow.getBounds(), dock: dockState };
+}
 
 ipcMain.handle("overlay:status", (_event, status) => {
   broadcastOverlayStatus(status);
@@ -537,6 +662,42 @@ ipcMain.handle("panel:show", () => {
   return true;
 });
 
+ipcMain.handle("layout:portion", (_event, spec) => {
+  const fullAxis = spec?.fullAxis === "h" ? "h" : "v";
+  const fraction = Number(spec?.fraction) || 1;
+  const snap = ["start", "center", "end"].includes(spec?.snap)
+    ? spec.snap
+    : "start";
+  return applyOverlayPortion(fullAxis, fraction, snap);
+});
+
+ipcMain.handle("layout:dock", (_event, edge) => dockOverlay(edge));
+
+ipcMain.handle("layout:grow", (_event, direction) => growOverlay(direction));
+
+ipcMain.handle("increment:get", () => ({ ...growIncrement }));
+
+ipcMain.handle("increment:set", (_event, next) => {
+  if (!next || typeof next !== "object") return { ...growIncrement };
+  const mode = String(next.mode || growIncrement.mode);
+  const allowed = ["fraction", "percent", "pixel", "mm", "inch"];
+  growIncrement = {
+    mode: allowed.includes(mode) ? mode : "fraction",
+    value: Number(next.value),
+  };
+  if (!Number.isFinite(growIncrement.value) || growIncrement.value <= 0) {
+    growIncrement.value = mode === "percent" ? 10 : mode === "pixel" ? 50 : 1 / 12;
+  }
+  incrementWindow?.webContents.send("increment:apply", growIncrement);
+  controlWindow?.webContents.send("increment:apply", growIncrement);
+  return { ...growIncrement };
+});
+
+ipcMain.handle("increment:toggle-window", () => {
+  toggleIncrementWindow();
+  return true;
+});
+
 ipcMain.handle("display:get-dpi", () => getDpiInfo());
 
 ipcMain.handle("sticky:set", (_event, guide) => {
@@ -571,18 +732,126 @@ ipcMain.handle("sticky:clear", () => {
 
 ipcMain.handle("sticky:get", () => (stickyGuide ? { ...stickyGuide } : null));
 
+function createIncrementWindow() {
+  if (incrementWindow) {
+    incrementWindow.focus();
+    return;
+  }
+
+  const area = screen.getPrimaryDisplay().workArea;
+  incrementWindow = new BrowserWindow({
+    width: 340,
+    height: 420,
+    minWidth: 300,
+    minHeight: 320,
+    x: Math.round(area.x + area.width / 2 - 170),
+    y: Math.round(area.y + 80),
+    frame: false,
+    transparent: false,
+    alwaysOnTop: true,
+    hasShadow: true,
+    resizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    backgroundColor: "#1a1714",
+    title: "GridFinder Increments",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      additionalArguments: ["--gf-role=increments"],
+    },
+  });
+
+  incrementWindow.setAlwaysOnTop(true, "screen-saver");
+  incrementWindow.loadFile(path.join(__dirname, "increments.html"));
+  incrementWindow.on("closed", () => {
+    incrementWindow = null;
+  });
+}
+
+function toggleIncrementWindow() {
+  if (incrementWindow) {
+    incrementWindow.close();
+    return;
+  }
+  createIncrementWindow();
+}
+
+function registerShortcuts() {
+  const bind = (accelerator, fn) => {
+    try {
+      globalShortcut.register(accelerator, fn);
+    } catch (_) {
+      /* ignore unsupported accelerators */
+    }
+  };
+
+  // Click-through toggle
+  bind("CommandOrControl+Shift+G", () => {
+    applyClickThrough(!sharedSettings.clickThrough);
+  });
+
+  // Reset / show controls panel
+  bind("CommandOrControl+Shift+P", () => {
+    resetControlPanel();
+  });
+
+  // Open increment settings
+  bind("CommandOrControl+Shift+I", () => {
+    toggleIncrementWindow();
+  });
+
+  // Zoom resolution (+ / -)
+  const zoomIn = () => nudgeLineCount(1);
+  const zoomOut = () => nudgeLineCount(-1);
+  bind("Plus", zoomIn);
+  bind("numadd", zoomIn);
+  bind("=", zoomIn);
+  bind("Minus", zoomOut);
+  bind("numsub", zoomOut);
+  bind("-", zoomOut);
+
+  // Ctrl+Shift+Arrow → dock + full stretch on perpendicular axis
+  bind("CommandOrControl+Shift+Left", () => dockOverlay("left"));
+  bind("CommandOrControl+Shift+Right", () => dockOverlay("right"));
+  bind("CommandOrControl+Shift+Up", () => dockOverlay("top"));
+  bind("CommandOrControl+Shift+Down", () => dockOverlay("bottom"));
+
+  // Ctrl+Arrow → grow/shrink from docked edge
+  bind("CommandOrControl+Left", () => growOverlay("left"));
+  bind("CommandOrControl+Right", () => growOverlay("right"));
+  bind("CommandOrControl+Up", () => growOverlay("up"));
+  bind("CommandOrControl+Down", () => growOverlay("down"));
+
+  // Portion presets
+  bind("CommandOrControl+Alt+1", () =>
+    applyOverlayPortion("v", 1 / 3, "start")
+  );
+  bind("CommandOrControl+Alt+2", () =>
+    applyOverlayPortion("v", 2 / 3, "start")
+  );
+  bind("CommandOrControl+Alt+3", () => applyOverlayPortion("v", 1, "start"));
+  bind("CommandOrControl+Alt+4", () =>
+    applyOverlayPortion("h", 1 / 3, "start")
+  );
+  bind("CommandOrControl+Alt+5", () =>
+    applyOverlayPortion("h", 2 / 3, "start")
+  );
+  bind("CommandOrControl+Alt+6", () => applyOverlayPortion("h", 1, "start"));
+}
+
 app.whenReady().then(() => {
   createOverlayWindow();
   createControlWindow();
-
-  globalShortcut.register("CommandOrControl+Shift+G", () => {
-    resetControlPanel();
-  });
+  registerShortcuts();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createOverlayWindow();
       createControlWindow();
+      registerShortcuts();
     }
   });
 });

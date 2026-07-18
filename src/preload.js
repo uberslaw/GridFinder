@@ -33,6 +33,17 @@ contextBridge.exposeInMainWorld("gridFinder", {
     ipcRenderer.invoke("window:set-ignore-mouse-events", ignore, options),
   resetPanel: () => ipcRenderer.invoke("panel:reset"),
   showPanel: () => ipcRenderer.invoke("panel:show"),
+  applyPortion: (spec) => ipcRenderer.invoke("layout:portion", spec),
+  dock: (edge) => ipcRenderer.invoke("layout:dock", edge),
+  grow: (direction) => ipcRenderer.invoke("layout:grow", direction),
+  getIncrement: () => ipcRenderer.invoke("increment:get"),
+  setIncrement: (next) => ipcRenderer.invoke("increment:set", next),
+  toggleIncrementWindow: () => ipcRenderer.invoke("increment:toggle-window"),
+  onIncrement: (handler) => {
+    const listener = (_event, value) => handler(value);
+    ipcRenderer.on("increment:apply", listener);
+    return () => ipcRenderer.removeListener("increment:apply", listener);
+  },
   getDpi: () => ipcRenderer.invoke("display:get-dpi"),
   setSticky: (guide) => ipcRenderer.invoke("sticky:set", guide),
   clearSticky: () => ipcRenderer.invoke("sticky:clear"),

@@ -11,6 +11,8 @@
     thickness: 1,
     majorEvery: 5,
     lineBreak: 0,
+    fineTune: false,
+    fineTuneStep: 0.01,
     gridColor: "#d9773a",
     majorColor: "#f0c49a",
     accentColor: "#ffe6c8",
@@ -44,7 +46,7 @@
   function clampLineCount(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return 1;
-    return Math.max(1, Math.min(250, Math.round(n)));
+    return Math.max(1, Math.min(80, n));
   }
 
   /** 0 = solid; 1..8 = equal dash/gap from 128px down to 1px. */
@@ -55,11 +57,16 @@
     return [unit, unit];
   }
 
-  /** Evenly spaced line positions: count lines across the axis. */
+  /**
+   * Evenly spaced line positions.
+   * Fractional counts (fine-tune) keep floor(n) lines and ease spacing until
+   * the next whole number adds another line (e.g. 1 → 2).
+   */
   function linePositions(size, count) {
     const n = clampLineCount(count);
+    const lines = Math.max(1, Math.floor(n + 1e-9));
     const positions = [];
-    for (let i = 1; i <= n; i += 1) {
+    for (let i = 1; i <= lines; i += 1) {
       positions.push((i / (n + 1)) * size);
     }
     return positions;
@@ -107,6 +114,8 @@
       thickness: settings.thickness ?? state.thickness,
       majorEvery: settings.majorEvery ?? state.majorEvery,
       lineBreak: settings.lineBreak ?? state.lineBreak,
+      fineTune: settings.fineTune ?? state.fineTune,
+      fineTuneStep: settings.fineTuneStep ?? state.fineTuneStep,
       gridColor: settings.gridColor ?? state.gridColor,
       majorColor: settings.majorColor ?? state.majorColor,
       accentColor: settings.accentColor ?? state.accentColor,
@@ -550,6 +559,22 @@
       publishStatus();
     }
   });
+
+  window.addEventListener(
+    "wheel",
+    (event) => {
+      if (!state.fineTune) return;
+      event.preventDefault();
+      const current = clampLineCount(state.lineCount);
+      const stepFactor = state.fineTuneStep === 0.001 ? 0.001 : 0.01;
+      const nextInteger = Math.floor(current) + 1;
+      const distance = Math.max(1e-6, nextInteger - current);
+      const direction = event.deltaY < 0 ? 1 : -1;
+      const next = clampLineCount(current + direction * stepFactor * distance);
+      api.updateSettings?.({ lineCount: next });
+    },
+    { passive: false }
+  );
 
   window.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {

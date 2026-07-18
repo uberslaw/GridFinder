@@ -1,0 +1,48 @@
+.increments-body {
+  height: calc(100% - var(--titlebar-height));
+}
+
+.subhead {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-soft);
+  margin: 12px 0 8px;
+}
+
+.unit-row {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.choice-grid.hidden {
+  display: none;
+}
+
+.choice-grid .btn {
+  padding: 6px 4px;
+  font-size: 11px;
+}
+
+.choice-grid .btn.is-active {
+  border-color: var(--accent);
+  background: rgba(217, 119, 58, 0.18);
+  color: var(--accent-soft);
+}
+
+#valueInput {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--panel-line);
+  border-radius: 4px;
+  background: var(--panel-elevated);
+  color: var(--text);
+  font-size: 13px;
+}
