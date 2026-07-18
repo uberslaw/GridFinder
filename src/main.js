@@ -44,7 +44,7 @@ let sharedSettings = {
   majorEvery: 5,
   lineBreak: 0, // 0 = solid … higher = shorter dashes down to 1px/1px
   fineTune: false,
-  fineTuneStep: 0.01, // 0.01 or 0.001 of the unit toward the next line number
+  fineTuneStep: 0.01, // 0.1, 0.01, or 0.001 of the unit toward the next line number
   gridColor: "#d9773a",
   majorColor: "#f0c49a",
   accentColor: "#ffe6c8",

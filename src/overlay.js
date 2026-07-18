@@ -576,7 +576,8 @@
       const current = clampLineCount(state.lineCount);
       let next;
       if (state.fineTune) {
-        const stepFactor = state.fineTuneStep === 0.001 ? 0.001 : 0.01;
+        const step = Number(state.fineTuneStep);
+        const stepFactor = step <= 0.001 ? 0.001 : step <= 0.01 ? 0.01 : 0.1;
         const nextInteger = Math.floor(current) + 1;
         const distance = Math.max(1e-6, nextInteger - current);
         next = current + direction * stepFactor * distance;

@@ -54,7 +54,8 @@
     if (Math.abs(n - Math.round(n)) < 1e-9) {
       return Math.round(n) === 1 ? "1 line" : `${Math.round(n)} lines`;
     }
-    const decimals = settingsCache.fineTuneStep === 0.001 ? 3 : 2;
+    const step = Number(settingsCache.fineTuneStep);
+    const decimals = step <= 0.001 ? 3 : step <= 0.01 ? 2 : 1;
     return `${n.toFixed(decimals)} lines`;
   }
 
