@@ -10,6 +10,7 @@
     lineCount: 1,
     thickness: 1,
     majorEvery: 5,
+    lineBreak: 0,
     gridColor: "#d9773a",
     majorColor: "#f0c49a",
     accentColor: "#ffe6c8",
@@ -43,7 +44,15 @@
   function clampLineCount(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return 1;
-    return Math.max(1, Math.min(1000, Math.round(n)));
+    return Math.max(1, Math.min(250, Math.round(n)));
+  }
+
+  /** 0 = solid; 1..8 = equal dash/gap from 128px down to 1px. */
+  function lineDashForBreak(step) {
+    const n = Math.max(0, Math.min(8, Math.round(Number(step) || 0)));
+    if (n <= 0) return [];
+    const unit = Math.max(1, 2 ** (8 - n));
+    return [unit, unit];
   }
 
   /** Evenly spaced line positions: count lines across the axis. */
@@ -97,6 +106,7 @@
       lineCount: clampLineCount(settings.lineCount ?? state.lineCount),
       thickness: settings.thickness ?? state.thickness,
       majorEvery: settings.majorEvery ?? state.majorEvery,
+      lineBreak: settings.lineBreak ?? state.lineBreak,
       gridColor: settings.gridColor ?? state.gridColor,
       majorColor: settings.majorColor ?? state.majorColor,
       accentColor: settings.accentColor ?? state.accentColor,
@@ -160,6 +170,7 @@
       lineCount,
       thickness,
       majorEvery,
+      lineBreak,
       gridColor,
       majorColor,
       majorEnabled,
@@ -174,6 +185,8 @@
     const majorWidth = Math.max(thickness * 1.6, thickness + 0.5);
     const xs = linePositions(width, lineCount);
     const ys = linePositions(height, lineCount);
+    const dash = lineDashForBreak(lineBreak);
+    ctx.setLineDash(dash);
 
     xs.forEach((x, index) => {
       const lineNumber = index + 1;
@@ -213,6 +226,8 @@
       ctx.lineTo(width, cy);
       ctx.stroke();
     }
+
+    ctx.setLineDash([]);
   }
 
   function drawMeasure(width, height) {
@@ -468,6 +483,7 @@
         b.y = resizing.startBounds.y + dy;
         b.height = resizing.startBounds.height - dy;
       }
+      b.edge = edge;
       const result = await api.setBounds(b);
       if (result?.sticky) {
         state.stickyActive = result.sticky;

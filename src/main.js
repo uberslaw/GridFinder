@@ -17,6 +17,7 @@ let sharedSettings = {
   lineCount: 1,
   thickness: 1,
   majorEvery: 5,
+  lineBreak: 0, // 0 = solid … higher = shorter dashes down to 1px/1px
   gridColor: "#d9773a",
   majorColor: "#f0c49a",
   accentColor: "#ffe6c8",
@@ -268,13 +269,12 @@ function constrainResize(bounds, edge = "") {
     const resizingLeft =
       edgeLower.includes("left") ||
       edgeLower.includes("west") ||
-      edgeLower.includes("w");
-    const resizingRight =
-      edgeLower.includes("right") ||
-      edgeLower.includes("east") ||
-      edgeLower.includes("e");
+      edgeLower === "w" ||
+      edgeLower.includes("nw") ||
+      edgeLower.includes("sw");
 
-    if (resizingLeft && !resizingRight) {
+    // Prefer an explicit left/west handle over "both sides changed" guesses.
+    if (resizingLeft) {
       const right = bounds.x + bounds.width;
       let left = bounds.x;
       left = Math.min(left, screenPos - 1);
@@ -283,6 +283,7 @@ function constrainResize(bounds, edge = "") {
       next.width = Math.max(OVERLAY_MIN_WIDTH, right - next.x);
       stickyGuide.localOffset = screenPos - next.x;
     } else {
+      // Right edge (or move): keep sticky screen X by locking left via offset.
       next.x = Math.round(screenPos - stickyGuide.localOffset);
       const minWidth = Math.ceil(stickyGuide.localOffset + 1);
       next.width = Math.max(OVERLAY_MIN_WIDTH, minWidth, next.width);
@@ -294,13 +295,17 @@ function constrainResize(bounds, edge = "") {
     const resizingTop =
       edgeLower.includes("top") ||
       edgeLower.includes("north") ||
-      edgeLower.includes("n");
+      edgeLower === "n" ||
+      edgeLower.includes("ne") ||
+      edgeLower.includes("nw");
     const resizingBottom =
       edgeLower.includes("bottom") ||
       edgeLower.includes("south") ||
-      edgeLower.includes("s");
+      edgeLower === "s" ||
+      edgeLower.includes("se") ||
+      edgeLower.includes("sw");
 
-    if (resizingTop && !resizingBottom) {
+    if (resizingTop) {
       const bottom = bounds.y + bounds.height;
       let top = bounds.y;
       top = Math.min(top, screenPos - 1);
@@ -321,19 +326,37 @@ function constrainResize(bounds, edge = "") {
   return next;
 }
 
-function applyStickyToBounds(bounds) {
+function applyStickyToBounds(bounds, edgeHint) {
   if (!stickyGuide) return bounds;
-  const edgeGuess = guessResizeEdge(overlayWindow?.getBounds(), bounds);
-  return constrainResize(constrainMove(bounds), edgeGuess);
+  const edge =
+    edgeHint || refineResizeEdge(overlayWindow?.getBounds(), bounds);
+  const sized = {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+  };
+  return constrainResize(constrainMove(sized), edge);
 }
 
-function guessResizeEdge(prev, next) {
+/**
+ * Pick the dominant moved edge so left-drag doesn't get treated as
+ * left+right (which incorrectly expands the opposite side when sticky).
+ */
+function refineResizeEdge(prev, next) {
   if (!prev || !next) return "";
+  const leftDelta = Math.abs(next.x - prev.x);
+  const rightDelta = Math.abs(next.x + next.width - (prev.x + prev.width));
+  const topDelta = Math.abs(next.y - prev.y);
+  const bottomDelta = Math.abs(next.y + next.height - (prev.y + prev.height));
+
   let edge = "";
-  if (next.x !== prev.x) edge += "left";
-  if (next.y !== prev.y) edge += "top";
-  if (next.x + next.width !== prev.x + prev.width) edge += "right";
-  if (next.y + next.height !== prev.y + prev.height) edge += "bottom";
+  if (leftDelta > 0 || rightDelta > 0) {
+    edge += leftDelta >= rightDelta ? "left" : "right";
+  }
+  if (topDelta > 0 || bottomDelta > 0) {
+    edge += topDelta >= bottomDelta ? "top" : "bottom";
+  }
   return edge;
 }
 
@@ -426,7 +449,7 @@ ipcMain.handle("window:set-bounds", (event, bounds) => {
   };
 
   if (isOverlay) {
-    next = applyStickyToBounds(next);
+    next = applyStickyToBounds(next, bounds.edge);
   }
 
   win.setBounds(next, false);

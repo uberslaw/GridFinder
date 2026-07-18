@@ -9,6 +9,7 @@
 
   const lineCountSlider = document.getElementById("lineCountSlider");
   const thicknessSlider = document.getElementById("thicknessSlider");
+  const lineBreakSlider = document.getElementById("lineBreakSlider");
   const majorEverySlider = document.getElementById("majorEverySlider");
   const majorEveryField = document.getElementById("majorEveryField");
   const ppiSlider = document.getElementById("ppiSlider");
@@ -23,8 +24,17 @@
 
   const lineCountValue = document.getElementById("lineCountValue");
   const thicknessValue = document.getElementById("thicknessValue");
+  const lineBreakValue = document.getElementById("lineBreakValue");
   const majorEveryValue = document.getElementById("majorEveryValue");
   const ppiValue = document.getElementById("ppiValue");
+
+  function breakLabel(step) {
+    const n = Math.max(0, Math.min(8, Number(step) || 0));
+    if (n <= 0) return "Solid";
+    const unit = 2 ** (8 - n);
+    if (unit === 1) return "1px dots";
+    return `${unit}px dash / ${unit}px gap`;
+  }
 
   const MODE_HELP = {
     pan: "Ctrl + drag the grid to move it. Resize from the frame edges.",
